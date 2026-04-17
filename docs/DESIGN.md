@@ -1,10 +1,32 @@
 # Kakapo — Design Doc (v1 HLD)
 
-Status: draft
+Status: **draft — in review**
 Owner: Vineet
 Last updated: 2026-04-16
 
 Scope: HLD for the voice-native, collaborative IDE on Zed + ACP. Topology, functional + non-functional requirements, and user-story-level flows. LLD (schemas, retries, back-pressure, wire formats) is out of scope.
+
+---
+
+## For reviewers — read first
+
+This doc has landed on `main`. This PR is a **review surface**: the diff is just this header. Please leave line comments on **any** line of the file in the "Files changed" tab — GitHub lets you comment on untouched lines too.
+
+**Specific asks, in order of how much I want pushback:**
+
+1. **§3 FR2 — single-master voice model.** Is "one master at a time" the right collaboration shape, or does it feel contrived next to CRDT-style concurrent keyboard editing? The alternative is per-user agent sessions running in parallel. Cost + complexity go up; UX gets weirder. Challenge this.
+2. **§6 — BYOK-in-v1.** We're choosing not to resell tokens at all. That's unusual for a dev tool in 2026. Does "bring your own key" kill onboarding friction? Is the token-hygiene wedge (NFR8) enough to make BYOK *attractive* vs painful?
+3. **§2 + FR5/FR6 — MCP tunnel trust model.** The Cloud Agent effectively executes on the master's machine via MCP. `session/request_permission` gates destructive ops. Tight enough, or do we need a sandbox / allow-list layer on the master's device?
+4. **§1 / §2 — session-scoped Cloud Agent.** Agent state lives per active session; no per-user history across sessions. Do we lose value by not giving individual users continuity across their own sessions?
+5. **NFR1 — 25 concurrent participants.** Picked this from "enterprise review session" intuition. Too aggressive, too conservative, or right? Anyone with Zed-collab experience especially welcome to push.
+
+**Explicitly NOT asking for feedback on:**
+
+- Prose polish. It's draft.
+- Provider naming / model choice. BYOK means we support all of them equally.
+- LLD details (schemas, retries, exact wire formats). Out of HLD scope.
+
+Leave threads open; I'll resolve them as I push updates to this branch.
 
 ---
 
