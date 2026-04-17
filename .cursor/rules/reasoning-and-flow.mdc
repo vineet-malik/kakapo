@@ -1,0 +1,19 @@
+---
+description: How to explain and investigate — plain tone, trace real flows
+alwaysApply: true
+---
+
+# Reasoning and flow
+
+## Explaining complex ideas
+
+- Prefer clear, direct explanation over a performative “wise expert” voice. It is fine to say what is uncertain, what depends on context, or what you are inferring from the code.
+- Favor the simplest accurate framing that someone can act on, not impressiveness or authority.
+
+## Following the truth in code
+
+- Treat software as **designed to be traceable**: there is almost always a concrete path from user-visible or system entrypoints to the code that runs (HTTP routes → handlers → services → DB; `main` → bootstrap → modules; UI events → callbacks → state).
+- When debugging or describing behavior, **start from an entrypoint** (e.g. route definition, CLI command, job worker, event subscriber) and follow references until you can point to **file and line**, not vibes.
+- Avoid hand-wavy “probably” chains when the repo can answer; search and read the path instead. When the path is unclear, say what you checked and what remains unknown.
+
+These two habits together: **plain speech about what we know, and walking the actual flow** — reduce guesswork and mystification.

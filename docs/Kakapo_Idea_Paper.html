@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kakapo: A Reliability-First Voice-First Agentic Browser</title>
+  <style>
+    body {
+      font-family: "Times New Roman", serif;
+      line-height: 1.45;
+      margin: 2rem auto;
+      max-width: 900px;
+      color: #111;
+      padding: 0 1rem;
+    }
+    h1, h2, h3 { margin-top: 1.2rem; margin-bottom: 0.4rem; }
+    .meta { margin: 0.2rem 0; }
+    .abstract {
+      border-left: 3px solid #666;
+      padding-left: 0.8rem;
+      margin: 1rem 0;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 0.6rem 0 1rem;
+      font-size: 0.95rem;
+    }
+    th, td {
+      border: 1px solid #888;
+      padding: 0.4rem 0.5rem;
+      vertical-align: top;
+    }
+    .small { font-size: 0.92rem; color: #333; }
+  </style>
+</head>
+<body>
+  <h1>Kakapo: A Reliability-First Voice-First Agentic Browser for Multi-Page Internet Work</h1>
+  <p class="meta"><strong>Author:</strong> Kakapo Project Team (Draft v0.1)</p>
+  <p class="meta"><strong>Date:</strong> 29 March 2026</p>
+  <p class="meta"><strong>Document Type:</strong> Concept and Product Architecture Position Paper</p>
+
+  <div class="abstract">
+    <h2>Abstract</h2>
+    <p>
+      Modern browsing interfaces are powerful but interaction-heavy: users spend large cognitive effort
+      switching tabs, re-finding context, and translating intent into manual steps. This paper presents
+      <strong>Kakapo</strong>, a voice-first agentic browser concept designed around one primary claim:
+      the hardest and most valuable internet sessions are not single-page lookups, but
+      <strong>multi-page journeys</strong> that require reliable navigation, source trust, and precise targeting.
+      We define a reliability-first interaction philosophy, an embodied conversational model, and a
+      source-respecting guidance system that keeps users in control while reducing cognitive load.
+      The proposed system emphasizes concrete provenance, natural language steering, minimal-but-complete
+      decision paths, and visible trust cues. The result is a browser interaction model that feels intuitive,
+      decisive, and operationally grounded.
+    </p>
+  </div>
+
+  <h2>1. Introduction</h2>
+  <p>
+    Conventional browsers were optimized for pointing, typing, and tab management. That model works well for
+    quick lookups, but it breaks rhythm during complex sessions: setup tasks, debugging, comparisons, itinerary building,
+    research, and all forms of multi-hop decision-making. Users often know what they want, but lose time
+    translating that intention into repetitive micro-actions.
+  </p>
+  <p>
+    Kakapo begins from first principles: a smart assistant should not behave as a command parser that occasionally helps.
+    It should continuously listen, understand intent in natural language, and guide attention toward the right source,
+    at the right moment, with the smallest possible decision burden.
+  </p>
+
+  <h2>2. Problem Statement</h2>
+  <p>
+    The central problem is not “finding pages.” It is managing <em>cognitive continuity</em> across pages.
+    Existing workflows suffer from:
+  </p>
+  <ul>
+    <li>Context fragmentation across tabs, scroll positions, and sources.</li>
+    <li>Weak trust signaling during solution synthesis.</li>
+    <li>High mental overhead in route selection and correction.</li>
+    <li>Friction between user intent and exact on-page anchors.</li>
+  </ul>
+
+  <h2>3. Design Thesis</h2>
+  <p>
+    Kakapo targets internet sessions that span more than a couple of pages and require sustained intent. The system is
+    built around three non-negotiable principles:
+  </p>
+  <ol>
+    <li><strong>Reliability over speed.</strong> Reliability is a functional requirement; speed is a non-functional optimization.</li>
+    <li><strong>Source-first truth.</strong> Prefer original web properties and explicit evidence trails.</li>
+    <li><strong>Present-focus interaction.</strong> Show what matters now and next, not heavy workflow scaffolding.</li>
+  </ol>
+
+  <h2>4. Core Interaction Model</h2>
+  <p>
+    Kakapo is envisioned as a digital bird guide: visibly attentive, minimally expressive, and operationally precise.
+    It listens with a wake-word gate, interprets natural phrasing, and advances with lightweight confirmation.
+  </p>
+
+  <h3>4.1 Listening and Guidance Loop</h3>
+  <ul>
+    <li>Always listening with wake-word activation to avoid room-chatter triggers.</li>
+    <li>Soft visual processing cue for long operations (&gt;1.0s), with tiny meaningful status text.</li>
+    <li>Current/next card model with source badge for immediate trust readability.</li>
+    <li>Two route alternatives when needed; user chooses in natural language.</li>
+    <li>Inferred choice turns orange; 2.0s silence proceeds unless explicitly rejected.</li>
+  </ul>
+
+  <h3>4.2 Attention Targeting</h3>
+  <ul>
+    <li>Highlight where the eye should land first (first relevant word, or top of relevant visual block).</li>
+    <li>If confidence is low, anchor to the nearest useful section and refine by user correction.</li>
+    <li>Respect original page look and content (including peripheral ad regions).</li>
+  </ul>
+
+  <h2>5. Information Delivery Policy</h2>
+  <p>
+    Kakapo does not replace the web; it orchestrates reliable consumption of the web.
+  </p>
+  <ul>
+    <li><strong>Default:</strong> Show the best original source artifact.</li>
+    <li><strong>If one source is insufficient:</strong> Stitch a shortest reliable multi-page journey.</li>
+    <li><strong>If synthesizing:</strong> Every recommendation maps back to explicit source evidence.</li>
+    <li><strong>Step economy:</strong> Use the minimum number of user-facing steps that still completes the job correctly.</li>
+  </ul>
+  <p class="small">
+    Note: A “step” is defined by cognitive and action transition, not by URL count. A long page may contain multiple steps.
+  </p>
+
+  <h2>6. Representative Use Cases</h2>
+  <p>
+    The product is not bound to one persona; it serves a recurring pattern: goal-driven multi-hop sessions.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Domain</th><th>Example Session</th><th>Kakapo Value</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Software</td><td>Unity networking setup + compile error resolution</td><td>Version-matched source path, exact fix anchor</td></tr>
+      <tr><td>Sales</td><td>Lead discovery across directories and company pages</td><td>Structured exploration with low context loss</td></tr>
+      <tr><td>Travel</td><td>Multi-site itinerary synthesis</td><td>Guided path and source-backed comparisons</td></tr>
+      <tr><td>Consumer</td><td>Car-buying under budget constraints</td><td>Constraint-driven route narrowing</td></tr>
+      <tr><td>Research</td><td>Journalistic deep-dive across mixed sources</td><td>Trust visibility and traceable evidence chain</td></tr>
+    </tbody>
+  </table>
+
+  <h2>7. Early Product Decisions (Captured)</h2>
+  <ul>
+    <li>Reliability-first route ranking; simplicity only inside reliable candidates.</li>
+    <li>Clarify uncertainty by voice, one constraint at a time by default.</li>
+    <li>Natural-language choice intake; no rigid command grammar requirement.</li>
+    <li>No unnecessary spoken acknowledgments after confirmation timeout.</li>
+    <li>Soft guidance over intrusive overlays; source badge always visible on guidance cards.</li>
+  </ul>
+
+  <h2>8. Open Decisions Before Build</h2>
+  <p>
+    The concept is mature in interaction philosophy, but requires closure on six high-leverage decisions before implementation:
+  </p>
+  <ol>
+    <li>Primary v1 wedge (which job is solved best first).</li>
+    <li>Platform commitment (desktop, extension, or web).</li>
+    <li>v1 scope boundary (what is explicitly in/out).</li>
+    <li>Trust/privacy posture and data movement policy.</li>
+    <li>Autonomy guardrails (what Kakapo must never do without explicit user intent).</li>
+    <li>Success metrics (experience and outcome metrics).</li>
+  </ol>
+
+  <h2>9. Conclusion</h2>
+  <p>
+    Kakapo reframes browsing as guided cognition rather than tab choreography. The concept proposes a practical path
+    to voice-first interaction that is both ambitious and grounded: reliability as a hard requirement, provenance as a
+    first-class object, and user attention as a scarce resource to be protected. If executed with discipline,
+    Kakapo can make internet work feel less like hunting and more like seeing.
+  </p>
+</body>
+</html>
