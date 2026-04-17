@@ -25,36 +25,42 @@ Scope: HLD for the voice-native, collaborative IDE on Zed + ACP. Topology, funct
                 Kakapo HLD — session-scoped agent, master-of-the-moment
                 ========================================================
 
- +------- MASTER (1 of <=25) ------------+     +------- FOLLOWERS (0..24) ------+
- |                                        |    |                                 |
- |   [ Mic ]                              |    |   [ Mic ]  muted to agent       |
- |      | (1) audio                       |    |                                 |
- |      v                                 |    |   [ Voice-ACP Proxy ] DORMANT   |
- |   [ Whisper STT ]                      |    |   [ MCP servers ]     IDLE      |
- |      | (2) text                        |    |                                 |
- |      v                                 |    |   [ Zed Editor (ACP host) ]     |
- |   [ Voice-ACP Proxy ] <==(3)===WS==================================+          |
- |      | (4) ACP stdio                   |    |      keyboard edits only        |
- |      v                                 |    |         |                |      |
- |   [ Zed Editor (ACP host) ]            |    |         | (5') CRDT ops  |      |
- |   [ MCP: FS / git / CLI / LSP ]        |    |         v                |      |
- |      | (5) CRDT ops                    |    +--------------------------|------+
- +------|---------------------------------+                               |
-        |                                                                 |
-        v                                                                 |
-   +---------- ZED CLOUD ----------+                                      |
-   |  Presence / Signaling          |                                     |
-   |  CRDT Ops Relay (25-way fan)   |<------- CRDT ops -------------------+
+ +------- MASTER (1 of <=25) -----------+   +-- FOLLOWERS (0..24) ----------+
+ |                                       |  |                               |
+ |   [ Mic ]                             |  |   [ Mic ]  muted to agent     |
+ |      | (1) audio                      |  |                               |
+ |      v                                |  |   [ Voice-ACP Proxy ] DORMANT |
+ |   [ Whisper STT ]                     |  |   [ MCP servers ]     IDLE    |
+ |      | (2) text                       |  |                               |
+ |      v                                |  |   [ Zed Editor (ACP host) ]   |
+ |   [ Voice-ACP Proxy ]                 |  |      keyboard edits only      |
+ |      |      \                         |  |             | (5') CRDT ops   |
+ |      |       \-- (3) WS + MCP tunnel  |  |             v                 |
+ |      |           to Kakapo Cloud      |  +-------------|-----------------+
+ |      |           (drawn below)        |                |
+ |      | (4) ACP stdio                  |                |
+ |      v                                |                |
+ |   [ Zed Editor (ACP host) ]           |                |
+ |   [ MCP: FS / git / CLI / LSP ]       |                |
+ |      | (5) CRDT ops                   |                |
+ +------|--------------------------------+                |
+        |                                                 |
+        v                                                 v
+   +---------- ZED CLOUD ----------+ <----- CRDT ops -----+
+   |  Presence / Signaling          |
+   |  CRDT Ops Relay (25-way fan)   |
    +--------------|-----------------+
                   | (6) broadcast
                   v
              (7) all 25 Zed editors apply the op; GPUI re-renders
 
 
-                (3) ACP over WebSocket + MCP tunnel
-                (single channel, bound ONLY to master's Proxy)
-                                   |
-                                   v
+   +-------------------------- (3) ----------------------------+
+   |  ACP over WebSocket + MCP tunnel                          |
+   |  Single channel, bound ONLY to master's Voice-ACP Proxy.  |
+   |  On master switch, the connection rebinds to new master.  |
+   +-----------------------------|-----------------------------+
+                                 v
    +============================ KAKAPO CLOUD ============================+
    |                                                                      |
    |   [ Session Master Lock ]  --- designates which Proxy is bound       |
