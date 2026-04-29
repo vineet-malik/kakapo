@@ -27,7 +27,11 @@ OPENAI_BASE_URL = os.getenv(
     "OPENAI_BASE_URL",
     "https://generativelanguage.googleapis.com/v1beta/openai/",
 )
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+# Demo default — override with OPENAI_API_KEY for your own key.
+OPENAI_API_KEY = os.getenv(
+    "OPENAI_API_KEY",
+    "AIzaSyABnkPaHzqZzuuFQxIUXPQHq6VHT0u_g7s",
+).strip()
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-flash-latest")
 MOCK_MODE = os.getenv("MOCK_MODE", "false").lower() == "true"
 
