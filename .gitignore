@@ -31,4 +31,5 @@ src/backend/proxy.db
 .cache/
 tmp/
 
-.claude/settings.local.json
+# Claude Code local state / nested worktrees
+.claude/
