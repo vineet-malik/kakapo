@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=1440" />
-  <title>TokenGuard</title>
+  <title>Kakapo</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -171,12 +171,30 @@
       font-weight: 600;
       color: var(--text);
     }
-    table {
-      width: 100%;
+    .activity-scroll {
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) var(--border-soft);
+    }
+    .activity-scroll::-webkit-scrollbar {
+      height: 8px;
+    }
+    .activity-scroll::-webkit-scrollbar-track {
+      background: var(--border-soft);
+    }
+    .activity-scroll::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+    .activity-scroll table {
+      width: max-content;
+      min-width: 100%;
       border-collapse: collapse;
       font-size: 13px;
     }
-    th {
+    .activity-scroll th {
       font-size: 10px;
       font-weight: 600;
       letter-spacing: 0.1em;
@@ -186,25 +204,40 @@
       padding: 12px 22px;
       border-bottom: 1px solid var(--border-soft);
       background: transparent;
+      white-space: nowrap;
     }
-    td {
+    .activity-scroll td {
       padding: 14px 22px;
       border-bottom: 1px solid var(--border-soft);
       vertical-align: middle;
       color: var(--text);
     }
-    tr:last-child td { border-bottom: none; }
-    td.time { color: var(--text-dimmer); font-variant-numeric: tabular-nums; width: 80px; }
-    td.model { color: var(--text-dim); font-size: 12px; width: 140px; }
-    td.prompt {
+    .activity-scroll tr:last-child td { border-bottom: none; }
+    .activity-scroll td.time { color: var(--text-dimmer); font-variant-numeric: tabular-nums; width: 80px; }
+    .activity-scroll td.model { color: var(--text-dim); font-size: 12px; min-width: 140px; max-width: 200px; }
+    .activity-scroll td.prompt {
       color: var(--text);
+      min-width: 200px;
       max-width: 420px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    td.cache { width: 80px; }
-    td.saved { text-align: right; width: 100px; font-variant-numeric: tabular-nums; color: var(--accent); }
+    .activity-scroll td.cache { width: 80px; white-space: nowrap; }
+    .activity-scroll td.tokens-saved {
+      text-align: right;
+      min-width: 110px;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+    .activity-scroll td.saved {
+      text-align: right;
+      min-width: 100px;
+      font-variant-numeric: tabular-nums;
+      color: var(--accent);
+      white-space: nowrap;
+    }
 
     .badge {
       display: inline-block;
@@ -236,10 +269,31 @@
 <body>
   <div class="container">
     <div class="topbar">
-      <div class="brand">TokenGuard</div>
+      <div class="brand">Kakapo</div>
       <div class="status" id="status">
         <span class="status-dot"></span>
         <span id="status-text">LIVE</span>
+      </div>
+    </div>
+
+    <div class="activity-card" style="margin-bottom: 24px;">
+      <div class="activity-head"><div class="activity-title">Recent activity</div></div>
+      <div class="activity-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Model</th>
+              <th>Prompt</th>
+              <th>Cache</th>
+              <th style="text-align:right">Tokens saved</th>
+              <th style="text-align:right">Saved</th>
+            </tr>
+          </thead>
+          <tbody id="activity">
+            <tr><td colspan="6" class="empty">Waiting for first request…</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -268,24 +322,6 @@
         <div class="chart-sub">last 60 min</div>
       </div>
       <div class="chart-wrap"><canvas id="chart"></canvas></div>
-    </div>
-
-    <div class="activity-card">
-      <div class="activity-head"><div class="activity-title">Recent activity</div></div>
-      <table>
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Model</th>
-            <th>Prompt</th>
-            <th>Cache</th>
-            <th style="text-align:right">Saved</th>
-          </tr>
-        </thead>
-        <tbody id="activity">
-          <tr><td colspan="5" class="empty">Waiting for first request…</td></tr>
-        </tbody>
-      </table>
     </div>
   </div>
 
@@ -536,7 +572,7 @@
 
     function renderActivity(rows) {
       if (!rows || rows.length === 0) {
-        activityEl.innerHTML = '<tr><td colspan="5" class="empty">Waiting for first request…</td></tr>';
+        activityEl.innerHTML = '<tr><td colspan="6" class="empty">Waiting for first request…</td></tr>';
         return;
       }
       const top5 = rows.slice(0, 5);
@@ -547,12 +583,14 @@
           ? '<span class="badge badge-hit">hit</span>'
           : '<span class="badge badge-miss">miss</span>';
         const prompt = (r.prompt_preview || '').replace(/</g, '&lt;');
+        const tokensSaved = Number(r.tokens_saved || 0).toLocaleString('en-US');
         return `
           <tr class="${isNew ? 'row-new' : ''}">
             <td class="time">${relativeTime(r.ts)}</td>
             <td class="model">${r.model}</td>
             <td class="prompt">${prompt}</td>
             <td class="cache">${badge}</td>
+            <td class="tokens-saved">${tokensSaved}</td>
             <td class="saved">$${Number(r.saved_usd).toFixed(4)}</td>
           </tr>`;
       }).join('');

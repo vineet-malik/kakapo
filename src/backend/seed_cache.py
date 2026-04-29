@@ -186,6 +186,14 @@ def build_response_envelope(i: int, question: str, answer: str) -> dict:
     }
 
 
+SEED_HISTORY_MODELS = [
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+    "gemini-2.5-flash",
+    "gemma-3-4b-it",
+]
+
+
 def seed_fake_history(conn: sqlite3.Connection, n: int = 12):
     """Insert fake historical rows spread across the last 30 minutes."""
     now = datetime.utcnow()
@@ -201,23 +209,27 @@ def seed_fake_history(conn: sqlite3.Connection, n: int = 12):
         question, answer = random.choice(SEED_QA)
         tokens_in = count_tokens(question) + 4
         tokens_out = count_tokens(answer)
+        model = random.choice(SEED_HISTORY_MODELS)
 
         status = random.choice(statuses)
         cache_hit = status in ("exact", "semantic")
 
         counterfactual = (tokens_in / 1e6) * GPT4O_PRICE["in"] + (tokens_out / 1e6) * GPT4O_PRICE["out"]
-        cost = 0.0 if cache_hit else 0.0  # Gemini free tier
-        saved = counterfactual if cache_hit else counterfactual - cost
+        cost = 0.0  # Gemini free tier; even on a miss we don't pay.
+        # Saved is *only* what the cache spared us: 0 on miss, full counterfactual on hit.
+        saved = counterfactual if cache_hit else 0.0
+        tokens_saved = (tokens_in + tokens_out) if cache_hit else 0
 
         latency = random.randint(10, 80) if cache_hit else random.randint(400, 1800)
 
         rows.append((
             ts.strftime("%Y-%m-%d %H:%M:%S"),
-            DEFAULT_MODEL,
+            model,
             f"seed-{i:03x}",
             f"[seed-demo] {question[:45]}",
             tokens_in,
             tokens_out,
+            tokens_saved,
             cost,
             counterfactual,
             saved,
@@ -229,9 +241,9 @@ def seed_fake_history(conn: sqlite3.Connection, n: int = 12):
     rows.sort(key=lambda r: r[0])
     conn.executemany(
         """INSERT INTO requests
-           (ts, model, prompt_hash, prompt_preview, tokens_in, tokens_out,
+           (ts, model, prompt_hash, prompt_preview, tokens_in, tokens_out, tokens_saved,
             cost_usd, counterfactual_usd, saved_usd, cache_status, latency_ms)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
         rows,
     )
     conn.commit()

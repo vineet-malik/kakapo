@@ -28,13 +28,15 @@ OPENAI_BASE_URL = os.getenv(
     "https://generativelanguage.googleapis.com/v1beta/openai/",
 )
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-2.0-flash")
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-flash-latest")
 MOCK_MODE = os.getenv("MOCK_MODE", "false").lower() == "true"
 
 DB_PATH = "proxy.db"
 CACHE_PKL = "cache.pkl"
 SEMANTIC_THRESHOLD = 0.93
-MIN_CHARS_FOR_SEMANTIC = 20
+# Allow short prompts ("hello", "hi") into the semantic cache too. The
+# threshold still gates correctness; this just stops us from skipping them.
+MIN_CHARS_FOR_SEMANTIC = 0
 
 GEMINI_PRICE = {"in": 0.0, "out": 0.0}
 GPT4O_PRICE = {"in": 2.50, "out": 10.00}
@@ -77,6 +79,7 @@ def _init_db(conn: sqlite3.Connection):
             prompt_preview TEXT,
             tokens_in INTEGER,
             tokens_out INTEGER,
+            tokens_saved INTEGER DEFAULT 0,
             cost_usd REAL,
             counterfactual_usd REAL,
             saved_usd REAL,
@@ -84,6 +87,10 @@ def _init_db(conn: sqlite3.Connection):
             latency_ms INTEGER
         );
     """)
+    # Migrate older DBs that predate the tokens_saved column.
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(requests)").fetchall()}
+    if "tokens_saved" not in cols:
+        conn.execute("ALTER TABLE requests ADD COLUMN tokens_saved INTEGER DEFAULT 0")
     conn.commit()
 
 
@@ -172,7 +179,20 @@ def semantic_add(query: str, response_json: str):
 # Exact cache
 # ---------------------------------------------------------------------------
 def exact_cache_key(model: str, messages: list[dict], temperature: float) -> str:
-    raw = model + json.dumps(messages, sort_keys=True) + str(temperature)
+    """Key on the last user message only.
+
+    Hashing the full message history meant the second 'hello' in a chat had a
+    different key from the first (because the prior assistant turn was now in
+    the list), so identical user prompts always missed. For a Q/A demo the
+    intent is "same prompt → same cached answer," so we key on the last user
+    turn plus model and temperature.
+    """
+    last_user = ""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            last_user = m.get("content") or ""
+            break
+    raw = model + "\n" + last_user + "\n" + str(temperature)
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
@@ -195,14 +215,27 @@ def exact_store(key: str, response_json: str):
 # Cost
 # ---------------------------------------------------------------------------
 def compute_costs(tokens_in: int, tokens_out: int, cache_hit: bool):
+    """Returns (cost, counterfactual, saved, tokens_saved).
+
+    `counterfactual` is what the same call would cost on a baseline model
+    (GPT-4o pricing here) — useful as a "what if we always used the expensive
+    model" reference even on cache misses.
+
+    `saved` is *only* what the cache saved us. On a miss we still hit the
+    upstream model, so the cache saved us $0 and 0 tokens — the previous
+    behaviour of crediting `counterfactual - cost` on misses bundled in
+    routing savings and made the demo confusing.
+    """
     counterfactual = (tokens_in / 1e6) * GPT4O_PRICE["in"] + (tokens_out / 1e6) * GPT4O_PRICE["out"]
     cost = (tokens_in / 1e6) * GEMINI_PRICE["in"] + (tokens_out / 1e6) * GEMINI_PRICE["out"]
     if cache_hit:
         cost = 0.0
         saved = counterfactual
+        tokens_saved = tokens_in + tokens_out
     else:
-        saved = counterfactual - cost
-    return cost, counterfactual, saved
+        saved = 0.0
+        tokens_saved = 0
+    return cost, counterfactual, saved, tokens_saved
 
 
 # ---------------------------------------------------------------------------
@@ -218,13 +251,13 @@ def log_request(
     latency_ms: int,
 ):
     cache_hit = cache_status in ("exact", "semantic")
-    cost, counterfactual, saved = compute_costs(tokens_in, tokens_out, cache_hit)
+    cost, counterfactual, saved, tokens_saved = compute_costs(tokens_in, tokens_out, cache_hit)
     get_db().execute(
         """INSERT INTO requests
-           (model, prompt_hash, prompt_preview, tokens_in, tokens_out,
+           (model, prompt_hash, prompt_preview, tokens_in, tokens_out, tokens_saved,
             cost_usd, counterfactual_usd, saved_usd, cache_status, latency_ms)
-           VALUES (?,?,?,?,?,?,?,?,?,?)""",
-        (model, prompt_hash, prompt_preview, tokens_in, tokens_out,
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        (model, prompt_hash, prompt_preview, tokens_in, tokens_out, tokens_saved,
          cost, counterfactual, saved, cache_status, latency_ms),
     )
     get_db().commit()
@@ -418,6 +451,7 @@ async def stats():
         SELECT
             COALESCE(SUM(cost_usd), 0.0)          AS total_spent_usd,
             COALESCE(SUM(saved_usd), 0.0)          AS total_saved_usd,
+            COALESCE(SUM(tokens_saved), 0)         AS total_tokens_saved,
             COUNT(*)                                AS total_requests,
             COALESCE(SUM(CASE WHEN cache_status IN ('exact','semantic') THEN 1 ELSE 0 END), 0) AS hits
         FROM requests
@@ -446,7 +480,8 @@ async def stats():
         timeline.append({"ts": r["bucket"], "cumulative_saved": round(cumulative, 6)})
 
     recent_rows = db.execute("""
-        SELECT ts, model, cache_status, tokens_in, tokens_out, saved_usd, prompt_preview
+        SELECT ts, model, cache_status, tokens_in, tokens_out, tokens_saved,
+               saved_usd, prompt_preview
         FROM requests
         ORDER BY id DESC
         LIMIT 20
@@ -459,6 +494,7 @@ async def stats():
             "cache_status": r["cache_status"],
             "tokens_in": r["tokens_in"],
             "tokens_out": r["tokens_out"],
+            "tokens_saved": r["tokens_saved"] or 0,
             "saved_usd": round(r["saved_usd"], 6),
             "prompt_preview": r["prompt_preview"],
         }
@@ -468,6 +504,7 @@ async def stats():
     return {
         "total_spent_usd": round(row["total_spent_usd"], 6),
         "total_saved_usd": round(row["total_saved_usd"], 6),
+        "total_tokens_saved": int(row["total_tokens_saved"] or 0),
         "cache_hit_rate": round(cache_hit_rate, 4),
         "total_requests": total,
         "timeline": timeline,
