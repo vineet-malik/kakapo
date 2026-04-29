@@ -1,6 +1,8 @@
 # Kakapo
 
-Kakapo is a voice-first **agentic IDE companion** (see [Concept](./docs/CONCEPT.md) and [Design](./docs/DESIGN.md)). This repository currently includes a **runnable prototype** you can share with the team: an LLM proxy with **exact + semantic caching**, a **chat demo**, and a **live dashboard** that shows cache hits, token savings, and estimated dollar savings.
+**Kakapo** is a token optimization layer for LLM workloads: this repo ships a runnable **proxy** (exact + semantic cache), a **browser demo**, and a **live dashboard** for cache hits, tokens saved, and dollar estimates versus a GPT‑4o‑priced baseline.
+
+Older product narratives (voice-first IDE companion, etc.) live under [`docs/`](./docs/) as historical context—not required to run or extend the demo.
 
 ---
 
@@ -12,7 +14,7 @@ Kakapo is a voice-first **agentic IDE companion** (see [Concept](./docs/CONCEPT.
 | [`src/backend/demo.html`](./src/backend/demo.html) | Split UI: chat on the left, embedded dashboard on the right |
 | [`src/backend/dashboard.html`](./src/backend/dashboard.html) | Metrics + recent activity (polls `/api/stats` every 2s) |
 | [`src/backend/seed_cache.py`](./src/backend/seed_cache.py) | Optional: pre-fill caches and sample `requests` rows (run **while proxy is stopped**) |
-| [`docs/`](./docs/) | Product and architecture notes |
+| [`docs/`](./docs/) | Historical concept / design notes (optional reading) |
 
 ---
 
@@ -27,7 +29,7 @@ Kakapo is a voice-first **agentic IDE companion** (see [Concept](./docs/CONCEPT.
 ### 1. Clone and enter the backend
 
 ```bash
-git clone <YOUR_REPO_URL> kakapo
+git clone https://github.com/vineet-malik/kakapo.git
 cd kakapo/src/backend
 ```
 
@@ -148,4 +150,4 @@ In the demo’s input row, pick another **Gemini** model ID and send. The dashbo
 
 ## Status
 
-The **IDE / voice** product described in `docs/` is broader than this slice. The **proxy + demo + dashboard** here is the current **shareable engineering prototype** for token caching, observability, and team demos.
+This repository is centered on the **proxy + demo + dashboard** prototype. Treat `docs/` as background unless you care about earlier pivots.
