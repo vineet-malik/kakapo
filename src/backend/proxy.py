@@ -482,6 +482,13 @@ async def dashboard():
     return JSONResponse({"error": "dashboard.html not found"}, status_code=404)
 
 
+@app.get("/demo")
+async def demo():
+    if os.path.exists("demo.html"):
+        return FileResponse("demo.html")
+    return JSONResponse({"error": "demo.html not found"}, status_code=404)
+
+
 # ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------

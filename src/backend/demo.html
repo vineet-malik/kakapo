@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=1440" />
+  <title>TokenGuard — Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0a;
+      --card: #141414;
+      --border: #262626;
+      --border-soft: #1a1a1a;
+      --text: #e5e7eb;
+      --text-dim: #9ca3af;
+      --text-dimmer: #6b7280;
+      --accent: #10b981;
+      --muted: #64748b;
+      --user-bg: #1e3a5f;
+    }
+
+    html, body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .layout {
+      display: flex;
+      height: 100vh;
+      width: 100%;
+    }
+
+    /* ============= LEFT PANE: Chat ============= */
+    .chat-pane {
+      width: 40%;
+      min-width: 500px;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+      background: var(--bg);
+    }
+
+    .chat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .chat-title {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .chat-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+    }
+    .status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16,185,129,0.5); }
+      50%      { opacity: 0.5; box-shadow: 0 0 0 6px rgba(16,185,129,0); }
+    }
+
+    .thread {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .thread::-webkit-scrollbar { width: 8px; }
+    .thread::-webkit-scrollbar-thumb { background: #262626; border-radius: 4px; }
+
+    .msg {
+      display: flex;
+      flex-direction: column;
+      max-width: 80%;
+    }
+    .msg.user { align-self: flex-end; align-items: flex-end; }
+    .msg.assistant { align-self: flex-start; align-items: flex-start; }
+
+    .bubble {
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: 14px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .msg.user .bubble {
+      background: var(--user-bg);
+      color: #fff;
+    }
+    .msg.assistant .bubble {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .meta {
+      display: flex;
+      gap: 8px;
+      margin-top: 6px;
+      align-items: center;
+      font-size: 10px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      border-radius: 4px;
+      text-transform: uppercase;
+      font-variant: small-caps;
+    }
+    .badge-latency-fast { background: rgba(16,185,129,0.12); color: var(--accent); border: 1px solid rgba(16,185,129,0.2); }
+    .badge-latency-slow { background: rgba(100,116,139,0.1); color: var(--muted); border: 1px solid rgba(100,116,139,0.18); }
+    .badge-cached { background: rgba(16,185,129,0.12); color: var(--accent); border: 1px solid rgba(16,185,129,0.2); }
+    .badge-fresh  { background: rgba(100,116,139,0.1); color: var(--muted); border: 1px solid rgba(100,116,139,0.18); }
+    .tokens { color: var(--text-dimmer); font-variant-numeric: tabular-nums; }
+
+    .typing {
+      display: flex;
+      align-self: flex-start;
+      gap: 4px;
+      padding: 12px 16px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .typing-dot {
+      width: 6px; height: 6px;
+      background: var(--text-dim);
+      border-radius: 50%;
+      animation: typing 1.2s ease-in-out infinite;
+    }
+    .typing-dot:nth-child(2) { animation-delay: 0.15s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes typing {
+      0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+      30%           { opacity: 1;   transform: translateY(-3px); }
+    }
+
+    .input-area {
+      padding: 16px 24px 20px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .input-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 8px 8px 14px;
+      transition: border-color 150ms;
+    }
+    .input-row:focus-within {
+      border-color: #3a3a3a;
+    }
+    textarea {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      line-height: 1.5;
+      resize: none;
+      min-height: 22px;
+      max-height: 88px;
+      padding: 6px 0;
+    }
+    textarea::placeholder { color: var(--text-dimmer); }
+    button.send {
+      background: var(--accent);
+      color: #041412;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      transition: opacity 150ms, background 150ms;
+    }
+    button.send:hover:not(:disabled) { background: #14c995; }
+    button.send:disabled { opacity: 0.4; cursor: not-allowed; }
+    .hint {
+      font-size: 10px;
+      color: var(--text-dimmer);
+      margin-top: 8px;
+      letter-spacing: 0.04em;
+    }
+
+    .empty-state {
+      margin: auto;
+      text-align: center;
+      color: var(--text-dimmer);
+      font-size: 13px;
+      padding: 40px 20px;
+    }
+    .empty-state strong { color: var(--text-dim); display: block; margin-bottom: 8px; font-weight: 600; }
+
+    /* ============= RIGHT PANE: Dashboard ============= */
+    .dash-pane {
+      width: 60%;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .dash-pane iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <!-- ============= CHAT ============= -->
+    <div class="chat-pane">
+      <div class="chat-header">
+        <div class="chat-title">TokenGuard Chat</div>
+        <div class="chat-status">
+          <span class="status-dot"></span>
+          <span>Connected</span>
+        </div>
+      </div>
+
+      <div class="thread" id="thread">
+        <div class="empty-state" id="empty">
+          <strong>Try a seeded question</strong>
+          "How do I reset my password?"<br />
+          "What's included in the Pro plan?"<br />
+          "How does semantic caching work?"
+        </div>
+      </div>
+
+      <div class="input-area">
+        <div class="input-row">
+          <textarea
+            id="input"
+            placeholder="Ask anything…"
+            rows="1"
+            autocomplete="off"
+          ></textarea>
+          <button class="send" id="send">Send</button>
+        </div>
+        <div class="hint">Enter to send · Shift+Enter for newline</div>
+      </div>
+    </div>
+
+    <!-- ============= DASHBOARD ============= -->
+    <div class="dash-pane">
+      <iframe src="/dashboard" title="Dashboard"></iframe>
+    </div>
+  </div>
+
+  <script>
+    const threadEl = document.getElementById('thread');
+    const inputEl = document.getElementById('input');
+    const sendBtn = document.getElementById('send');
+    const emptyEl = document.getElementById('empty');
+
+    /** @type {{role: 'user' | 'assistant', content: string}[]} */
+    const history = [];
+
+    // ---- Auto-grow textarea ----
+    function autogrow() {
+      inputEl.style.height = 'auto';
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 88) + 'px';
+    }
+    inputEl.addEventListener('input', autogrow);
+
+    // ---- Enter to send, Shift+Enter newline ----
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        send();
+      }
+    });
+    sendBtn.addEventListener('click', send);
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[c]));
+    }
+
+    function clearEmpty() {
+      if (emptyEl && emptyEl.parentNode) emptyEl.remove();
+    }
+
+    function scrollToBottom() {
+      threadEl.scrollTop = threadEl.scrollHeight;
+    }
+
+    function appendUser(content) {
+      clearEmpty();
+      const el = document.createElement('div');
+      el.className = 'msg user';
+      el.innerHTML = `<div class="bubble">${escapeHtml(content)}</div>`;
+      threadEl.appendChild(el);
+      scrollToBottom();
+    }
+
+    function appendTyping() {
+      clearEmpty();
+      const el = document.createElement('div');
+      el.className = 'typing';
+      el.id = 'typing';
+      el.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
+      threadEl.appendChild(el);
+      scrollToBottom();
+      return el;
+    }
+
+    function removeTyping() {
+      const el = document.getElementById('typing');
+      if (el) el.remove();
+    }
+
+    function appendAssistant(content, latencyMs, tokensIn, tokensOut) {
+      const isCached = latencyMs < 100;
+      const totalTokens = (tokensIn || 0) + (tokensOut || 0);
+
+      const latencyClass = isCached ? 'badge-latency-fast' : 'badge-latency-slow';
+      const cacheBadge = isCached
+        ? '<span class="badge badge-cached">CACHED ⚡</span>'
+        : '<span class="badge badge-fresh">FRESH</span>';
+
+      const el = document.createElement('div');
+      el.className = 'msg assistant';
+      el.innerHTML = `
+        <div class="bubble">${escapeHtml(content)}</div>
+        <div class="meta">
+          <span class="badge ${latencyClass}">${latencyMs}ms</span>
+          ${cacheBadge}
+          <span class="tokens">${totalTokens} tokens</span>
+        </div>
+      `;
+      threadEl.appendChild(el);
+      scrollToBottom();
+    }
+
+    async function send() {
+      const text = inputEl.value.trim();
+      if (!text || sendBtn.disabled) return;
+
+      history.push({ role: 'user', content: text });
+      appendUser(text);
+      inputEl.value = '';
+      autogrow();
+
+      sendBtn.disabled = true;
+      appendTyping();
+
+      const t0 = Date.now();
+      try {
+        const res = await fetch('/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'gemini-2.0-flash',
+            messages: history,
+          }),
+        });
+        const latencyMs = Date.now() - t0;
+        removeTyping();
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => 'error');
+          appendAssistant(`Error: ${res.status} ${errText}`, latencyMs, 0, 0);
+          return;
+        }
+
+        const data = await res.json();
+        const content = data?.choices?.[0]?.message?.content ?? '(no content)';
+        const tokensIn = data?.usage?.prompt_tokens ?? 0;
+        const tokensOut = data?.usage?.completion_tokens ?? 0;
+
+        history.push({ role: 'assistant', content });
+        appendAssistant(content, latencyMs, tokensIn, tokensOut);
+      } catch (err) {
+        removeTyping();
+        const latencyMs = Date.now() - t0;
+        appendAssistant(`Network error: ${err.message}`, latencyMs, 0, 0);
+      } finally {
+        sendBtn.disabled = false;
+        inputEl.focus();
+      }
+    }
+
+    inputEl.focus();
+  </script>
+</body>
+</html>

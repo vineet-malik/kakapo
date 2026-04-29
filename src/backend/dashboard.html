@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=1440" />
+  <title>TokenGuard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0a;
+      --card: #141414;
+      --border: #262626;
+      --border-soft: #1a1a1a;
+      --text: #e5e7eb;
+      --text-dim: #9ca3af;
+      --text-dimmer: #6b7280;
+      --accent: #10b981;
+      --muted: #64748b;
+      --danger: #ef4444;
+    }
+
+    html, body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      font-feature-settings: 'cv11', 'ss01';
+    }
+
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 32px 40px 80px;
+    }
+
+    /* ========== Top bar ========== */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 28px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 28px;
+    }
+    .brand {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--text);
+    }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+    }
+    .status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+    .status.error .status-dot {
+      background: var(--danger);
+      animation: pulse-error 1s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+      50%      { opacity: 0.5; box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    }
+    @keyframes pulse-error {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.3; }
+    }
+
+    /* ========== Stat tiles ========== */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .tile {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px 22px;
+      min-height: 108px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .tile.hero {
+      grid-column: span 1;
+      min-height: 160px;
+    }
+    .tile-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+    .tile-value {
+      font-size: 30px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+      line-height: 1.1;
+    }
+    .tile.hero .tile-value {
+      font-size: 60px;
+      color: var(--accent);
+    }
+    .tile.spent .tile-value { color: var(--muted); }
+
+    /* ========== Chart ========== */
+    .chart-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 22px 22px 18px;
+      margin-bottom: 24px;
+    }
+    .chart-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 14px;
+    }
+    .chart-title {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: -0.005em;
+      color: var(--text);
+    }
+    .chart-sub {
+      font-size: 11px;
+      color: var(--text-dimmer);
+      letter-spacing: 0.04em;
+    }
+    .chart-wrap {
+      height: 300px;
+      position: relative;
+    }
+
+    /* ========== Recent Activity ========== */
+    .activity-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .activity-head {
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--border);
+    }
+    .activity-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      text-align: left;
+      padding: 12px 22px;
+      border-bottom: 1px solid var(--border-soft);
+      background: transparent;
+    }
+    td {
+      padding: 14px 22px;
+      border-bottom: 1px solid var(--border-soft);
+      vertical-align: middle;
+      color: var(--text);
+    }
+    tr:last-child td { border-bottom: none; }
+    td.time { color: var(--text-dimmer); font-variant-numeric: tabular-nums; width: 80px; }
+    td.model { color: var(--text-dim); font-size: 12px; width: 140px; }
+    td.prompt {
+      color: var(--text);
+      max-width: 420px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    td.cache { width: 80px; }
+    td.saved { text-align: right; width: 100px; font-variant-numeric: tabular-nums; color: var(--accent); }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 9px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      border-radius: 4px;
+      text-transform: uppercase;
+      font-variant: small-caps;
+    }
+    .badge-hit  { background: rgba(16, 185, 129, 0.12); color: var(--accent); border: 1px solid rgba(16, 185, 129, 0.2); }
+    .badge-miss { background: rgba(100, 116, 139, 0.1); color: var(--muted);  border: 1px solid rgba(100, 116, 139, 0.18); }
+
+    .empty {
+      padding: 32px 22px;
+      color: var(--text-dimmer);
+      text-align: center;
+      font-size: 12px;
+    }
+
+    @keyframes fadeInRow {
+      from { opacity: 0; transform: translateY(-6px); background: rgba(16, 185, 129, 0.04); }
+      to   { opacity: 1; transform: translateY(0);    background: transparent; }
+    }
+    .row-new { animation: fadeInRow 500ms ease-out; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div class="brand">TokenGuard</div>
+      <div class="status" id="status">
+        <span class="status-dot"></span>
+        <span id="status-text">LIVE</span>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="tile hero">
+        <div class="tile-label">Total Saved Today</div>
+        <div class="tile-value" id="val-saved">$0.00</div>
+      </div>
+      <div class="tile spent">
+        <div class="tile-label">Total Spent Today</div>
+        <div class="tile-value" id="val-spent">$0.00</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Cache Hit Rate</div>
+        <div class="tile-value" id="val-rate">0.0%</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Requests Handled</div>
+        <div class="tile-value" id="val-requests">0</div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-head">
+        <div class="chart-title">Cumulative savings</div>
+        <div class="chart-sub">last 60 min</div>
+      </div>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+    </div>
+
+    <div class="activity-card">
+      <div class="activity-head"><div class="activity-title">Recent activity</div></div>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Model</th>
+            <th>Prompt</th>
+            <th>Cache</th>
+            <th style="text-align:right">Saved</th>
+          </tr>
+        </thead>
+        <tbody id="activity">
+          <tr><td colspan="5" class="empty">Waiting for first request…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // =====================================================================
+    // MOCK /api/stats — intercept fetch so real app code stays unchanged.
+    // When backend is ready, remove this block or flip MOCK = false.
+    // =====================================================================
+    const MOCK = false;
+
+    const mockPrompts = [
+      'Write a Python function to parse CSV files with error handling',
+      'Explain the difference between async and sync in JavaScript',
+      'How do I deploy a FastAPI app to production with Docker',
+      'Show me an example of a React hook for debouncing input',
+      "What's the best way to handle CORS in Express",
+      'Implement a binary search tree in TypeScript with generics',
+      'How does JWT authentication actually work end to end',
+      'Rewrite this SQL query using window functions instead of subqueries',
+      'Kubernetes liveness vs readiness probes — when to use which',
+      'Explain eventual consistency to a frontend engineer',
+      'Generate a regex to match RFC 5321 email addresses',
+      'Refactor this callback pyramid into async/await',
+      'Write a Dockerfile for a Rust service with cargo-chef caching',
+      'Why is my React component re-rendering every keystroke',
+      'Diff between UUIDv4 and UUIDv7 and when to pick each',
+    ];
+
+    const mockModels = ['gemini-2.0-flash', 'gemini-2.0-flash', 'gemini-2.0-flash', 'gemini-2.5-pro'];
+
+    const mockState = (() => {
+      const now = Date.now();
+      const timeline = [];
+      for (let i = 59; i >= 0; i--) {
+        timeline.push({ ts: new Date(now - i * 60000).toISOString(), cumulative_saved: 0 });
+      }
+      return {
+        total_spent_usd: 0,
+        total_saved_usd: 0,
+        total_requests: 0,
+        cache_hits: 0,
+        timeline,
+        recent: [],
+        lastShift: now,
+      };
+    })();
+
+    function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+    function generateMockStats() {
+      const newCount = 1 + Math.floor(Math.random() * 3);
+
+      for (let i = 0; i < newCount; i++) {
+        const isHit = Math.random() < 0.38;
+        const status = isHit ? (Math.random() < 0.55 ? 'exact' : 'semantic') : 'miss';
+        const tokens_in = 80 + Math.floor(Math.random() * 1600);
+        const tokens_out = 40 + Math.floor(Math.random() * 420);
+        const counterfactual = (tokens_in / 1e6) * 2.5 + (tokens_out / 1e6) * 10.0;
+        const cost = 0; // gemini free tier
+        const saved = isHit ? counterfactual : counterfactual - cost;
+
+        mockState.total_requests += 1;
+        if (isHit) mockState.cache_hits += 1;
+        mockState.total_spent_usd += cost;
+        mockState.total_saved_usd += saved;
+
+        mockState.recent.unshift({
+          ts: new Date().toISOString(),
+          model: pick(mockModels),
+          cache_status: status,
+          tokens_in,
+          tokens_out,
+          saved_usd: saved,
+          prompt_preview: pick(mockPrompts).slice(0, 60),
+        });
+      }
+      if (mockState.recent.length > 20) mockState.recent.length = 20;
+
+      // Timeline: shift once per minute, otherwise update the last bucket
+      const now = Date.now();
+      if (now - mockState.lastShift > 60000) {
+        mockState.timeline.shift();
+        mockState.timeline.push({ ts: new Date(now).toISOString(), cumulative_saved: mockState.total_saved_usd });
+        mockState.lastShift = now;
+      } else {
+        const last = mockState.timeline[mockState.timeline.length - 1];
+        last.ts = new Date(now).toISOString();
+        last.cumulative_saved = mockState.total_saved_usd;
+      }
+
+      return {
+        total_spent_usd: mockState.total_spent_usd,
+        total_saved_usd: mockState.total_saved_usd,
+        cache_hit_rate: mockState.total_requests > 0 ? mockState.cache_hits / mockState.total_requests : 0,
+        total_requests: mockState.total_requests,
+        timeline: mockState.timeline.slice(),
+        recent_requests: mockState.recent.slice(0, 20),
+      };
+    }
+
+    if (MOCK) {
+      const realFetch = window.fetch.bind(window);
+      window.fetch = function (url, ...rest) {
+        if (typeof url === 'string' && url.startsWith('/api/stats')) {
+          return new Promise((res) =>
+            setTimeout(() => res({ ok: true, json: () => Promise.resolve(generateMockStats()) }), 40)
+          );
+        }
+        return realFetch(url, ...rest);
+      };
+    }
+
+    // =====================================================================
+    // Number tween
+    // =====================================================================
+    class NumberTween {
+      constructor(el, formatter) {
+        this.el = el;
+        this.formatter = formatter;
+        this.current = 0;
+        this.raf = null;
+      }
+      set(target, duration = 500) {
+        if (Math.abs(this.current - target) < 1e-9) return;
+        cancelAnimationFrame(this.raf);
+        const from = this.current;
+        const start = performance.now();
+        const step = (now) => {
+          const t = Math.min((now - start) / duration, 1);
+          const eased = 1 - Math.pow(1 - t, 3);
+          const v = from + (target - from) * eased;
+          this.el.textContent = this.formatter(v);
+          if (t < 1) this.raf = requestAnimationFrame(step);
+          else { this.current = target; this.el.textContent = this.formatter(target); }
+        };
+        this.raf = requestAnimationFrame(step);
+      }
+    }
+
+    const fmtMoney = (v) => '$' + v.toFixed(2);
+    const fmtPct = (v) => (v * 100).toFixed(1) + '%';
+    const fmtInt = (v) => Math.round(v).toLocaleString('en-US');
+
+    const tweens = {
+      saved: new NumberTween(document.getElementById('val-saved'), fmtMoney),
+      spent: new NumberTween(document.getElementById('val-spent'), fmtMoney),
+      rate:  new NumberTween(document.getElementById('val-rate'),  fmtPct),
+      reqs:  new NumberTween(document.getElementById('val-requests'), fmtInt),
+    };
+
+    // =====================================================================
+    // Chart
+    // =====================================================================
+    const canvas = document.getElementById('chart');
+    const ctx = canvas.getContext('2d');
+    const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+    gradient.addColorStop(0, 'rgba(16, 185, 129, 0.25)');
+    gradient.addColorStop(1, 'rgba(16, 185, 129, 0.00)');
+
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: Array(60).fill(''),
+        datasets: [{
+          data: Array(60).fill(0),
+          borderColor: '#10b981',
+          backgroundColor: gradient,
+          borderWidth: 2,
+          fill: true,
+          tension: 0.35,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          pointHoverBackgroundColor: '#10b981',
+          pointHoverBorderColor: '#0a0a0a',
+          pointHoverBorderWidth: 2,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 500, easing: 'easeOutCubic' },
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#141414',
+            borderColor: '#262626',
+            borderWidth: 1,
+            titleColor: '#9ca3af',
+            titleFont: { family: 'Inter', size: 11, weight: '600' },
+            bodyColor: '#e5e7eb',
+            bodyFont: { family: 'Inter', size: 12 },
+            padding: 10,
+            displayColors: false,
+            callbacks: {
+              title: (items) => items[0].label,
+              label: (item) => '$' + item.parsed.y.toFixed(2) + ' saved',
+            },
+          },
+        },
+        scales: {
+          x: {
+            grid: { color: '#1a1a1a', drawTicks: false },
+            border: { display: false },
+            ticks: {
+              color: '#6b7280',
+              font: { family: 'Inter', size: 10 },
+              maxTicksLimit: 6,
+              autoSkip: true,
+              padding: 8,
+            },
+          },
+          y: {
+            grid: { color: '#1a1a1a', drawTicks: false },
+            border: { display: false },
+            beginAtZero: true,
+            ticks: {
+              color: '#6b7280',
+              font: { family: 'Inter', size: 10 },
+              padding: 10,
+              maxTicksLimit: 5,
+              callback: (v) => '$' + Number(v).toFixed(2),
+            },
+          },
+        },
+      },
+    });
+
+    function fmtClockLabel(iso) {
+      const d = new Date(iso);
+      return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+
+    // =====================================================================
+    // Recent activity table
+    // =====================================================================
+    const activityEl = document.getElementById('activity');
+    let seenTs = new Set();
+
+    function relativeTime(iso) {
+      const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+      if (s < 5) return 'just now';
+      if (s < 60) return s + 's ago';
+      const m = Math.floor(s / 60);
+      if (m < 60) return m + 'm ago';
+      return Math.floor(m / 60) + 'h ago';
+    }
+
+    function renderActivity(rows) {
+      if (!rows || rows.length === 0) {
+        activityEl.innerHTML = '<tr><td colspan="5" class="empty">Waiting for first request…</td></tr>';
+        return;
+      }
+      const top5 = rows.slice(0, 5);
+      const html = top5.map((r) => {
+        const isNew = !seenTs.has(r.ts);
+        const isHit = r.cache_status !== 'miss';
+        const badge = isHit
+          ? '<span class="badge badge-hit">hit</span>'
+          : '<span class="badge badge-miss">miss</span>';
+        const prompt = (r.prompt_preview || '').replace(/</g, '&lt;');
+        return `
+          <tr class="${isNew ? 'row-new' : ''}">
+            <td class="time">${relativeTime(r.ts)}</td>
+            <td class="model">${r.model}</td>
+            <td class="prompt">${prompt}</td>
+            <td class="cache">${badge}</td>
+            <td class="saved">$${Number(r.saved_usd).toFixed(4)}</td>
+          </tr>`;
+      }).join('');
+      activityEl.innerHTML = html;
+
+      // Track seen timestamps so we only animate genuinely new rows
+      const nextSeen = new Set();
+      rows.forEach((r) => nextSeen.add(r.ts));
+      seenTs = nextSeen;
+    }
+
+    // =====================================================================
+    // Polling
+    // =====================================================================
+    const statusEl = document.getElementById('status');
+    const statusText = document.getElementById('status-text');
+
+    async function pollOnce() {
+      try {
+        const res = await fetch('/api/stats', { cache: 'no-store' });
+        if (!res.ok) throw new Error('bad status ' + res.status);
+        const s = await res.json();
+        applyStats(s);
+        statusEl.classList.remove('error');
+        statusText.textContent = 'LIVE';
+      } catch (e) {
+        statusEl.classList.add('error');
+        statusText.textContent = 'OFFLINE';
+      }
+    }
+
+    function applyStats(s) {
+      tweens.saved.set(s.total_saved_usd || 0);
+      tweens.spent.set(s.total_spent_usd || 0);
+      tweens.rate.set(s.cache_hit_rate || 0);
+      tweens.reqs.set(s.total_requests || 0);
+
+      if (Array.isArray(s.timeline) && s.timeline.length) {
+        chart.data.labels = s.timeline.map((b) => fmtClockLabel(b.ts));
+        chart.data.datasets[0].data = s.timeline.map((b) => b.cumulative_saved);
+        chart.update('none');
+      }
+
+      renderActivity(s.recent_requests || []);
+    }
+
+    pollOnce();
+    setInterval(pollOnce, 2000);
+
+    // Re-render relative times every second so "3s ago" stays fresh
+    setInterval(() => {
+      // Refresh only the time cells; avoid resetting animations
+      const cells = activityEl.querySelectorAll('td.time');
+      if (!cells.length) return;
+      const tsList = Array.from(seenTs).sort((a, b) => new Date(b) - new Date(a)).slice(0, 5);
+      cells.forEach((cell, i) => { if (tsList[i]) cell.textContent = relativeTime(tsList[i]); });
+    }, 1000);
+  </script>
+</body>
+</html>
