@@ -3,7 +3,6 @@ import asyncio
 import hashlib
 import json
 import os
-import pickle
 import random
 import sqlite3
 import time
@@ -27,20 +26,28 @@ OPENAI_BASE_URL = os.getenv(
     "OPENAI_BASE_URL",
     "https://generativelanguage.googleapis.com/v1beta/openai/",
 )
-# Demo default — override with OPENAI_API_KEY for your own key.
 OPENAI_API_KEY = os.getenv(
     "OPENAI_API_KEY",
-    "AIzaSyABnkPaHzqZzuuFQxIUXPQHq6VHT0u_g7s",
+    "",
 ).strip()
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-flash-latest")
 MOCK_MODE = os.getenv("MOCK_MODE", "false").lower() == "true"
 
 DB_PATH = "proxy.db"
-CACHE_PKL = "cache.pkl"
-SEMANTIC_THRESHOLD = 0.93
-# Allow short prompts ("hello", "hi") into the semantic cache too. The
-# threshold still gates correctness; this just stops us from skipping them.
-MIN_CHARS_FOR_SEMANTIC = 0
+
+# ---------------------------------------------------------------------------
+# Semantic cache config
+# ---------------------------------------------------------------------------
+# Cosine similarity threshold — tune between 0.85 (looser) and 0.97 (stricter).
+# 0.90 is a good starting point: catches paraphrases without false positives.
+SEMANTIC_THRESHOLD = float(os.getenv("SEMANTIC_THRESHOLD", "0.90"))
+
+# How long (seconds) a semantic cache entry is considered fresh. Default 24 h.
+# Set to 0 to disable TTL entirely.
+SEMANTIC_TTL_SECONDS = int(os.getenv("SEMANTIC_TTL_SECONDS", str(60 * 60 * 24)))
+
+# Maximum number of vectors to keep in the FAISS index (LRU eviction beyond this).
+SEMANTIC_MAX_ENTRIES = int(os.getenv("SEMANTIC_MAX_ENTRIES", "10000"))
 
 GEMINI_PRICE = {"in": 0.0, "out": 0.0}
 GPT4O_PRICE = {"in": 2.50, "out": 10.00}
@@ -50,7 +57,8 @@ GPT4O_PRICE = {"in": 2.50, "out": 10.00}
 # ---------------------------------------------------------------------------
 _encoder: Optional[SentenceTransformer] = None
 _faiss_index: Optional[faiss.IndexFlatIP] = None
-_faiss_payloads: list = []  # [{response_json, original_query}]
+# Each entry: {response_json, original_query, created_at (unix ts)}
+_faiss_payloads: list = []
 _tokenizer = None
 _db_conn: Optional[sqlite3.Connection] = None
 
@@ -75,6 +83,18 @@ def _init_db(conn: sqlite3.Connection):
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
+        -- Semantic cache stored in SQLite for durability.
+        -- The FAISS index is rebuilt from this table on startup.
+        CREATE TABLE IF NOT EXISTS semantic_cache (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            query_text TEXT NOT NULL,
+            query_hash TEXT NOT NULL UNIQUE,
+            response_json TEXT NOT NULL,
+            created_at REAL NOT NULL,          -- Unix timestamp (float)
+            last_used_at REAL NOT NULL,         -- For LRU eviction
+            hit_count INTEGER NOT NULL DEFAULT 0
+        );
+
         CREATE TABLE IF NOT EXISTS requests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ts DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -91,7 +111,8 @@ def _init_db(conn: sqlite3.Connection):
             latency_ms INTEGER
         );
     """)
-    # Migrate older DBs that predate the tokens_saved column.
+
+    # Migrate older DBs
     cols = {row[1] for row in conn.execute("PRAGMA table_info(requests)").fetchall()}
     if "tokens_saved" not in cols:
         conn.execute("ALTER TABLE requests ADD COLUMN tokens_saved INTEGER DEFAULT 0")
@@ -121,7 +142,7 @@ def messages_token_count(messages: list[dict]) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Semantic cache
+# Semantic cache — FAISS index rebuilt from SQLite on startup
 # ---------------------------------------------------------------------------
 def get_encoder() -> SentenceTransformer:
     global _encoder
@@ -130,67 +151,242 @@ def get_encoder() -> SentenceTransformer:
     return _encoder
 
 
-def _load_semantic_cache():
-    global _faiss_index, _faiss_payloads
-    if os.path.exists(CACHE_PKL):
-        try:
-            with open(CACHE_PKL, "rb") as f:
-                data = pickle.load(f)
-            _faiss_index = data["index"]
-            _faiss_payloads = data["payloads"]
-            print(f"[cache] Loaded {len(_faiss_payloads)} semantic entries from {CACHE_PKL}")
-            return
-        except Exception as e:
-            print(f"[cache] Failed to load {CACHE_PKL}: {e}")
-    dim = 384  # all-MiniLM-L6-v2 output dim
-    _faiss_index = faiss.IndexFlatIP(dim)
-    _faiss_payloads = []
-
-
-def _save_semantic_cache():
-    if _faiss_index is None:
-        return
-    with open(CACHE_PKL, "wb") as f:
-        pickle.dump({"index": _faiss_index, "payloads": _faiss_payloads}, f)
-    print(f"[cache] Saved {len(_faiss_payloads)} semantic entries to {CACHE_PKL}")
-
-
 def _embed(text: str) -> np.ndarray:
-    enc = get_encoder()
-    vec = enc.encode([text], normalize_embeddings=True)[0]
+    vec = get_encoder().encode([text], normalize_embeddings=True)[0]
     return vec.astype(np.float32)
 
 
+def _build_faiss_index_from_db():
+    """
+    Rebuild the in-memory FAISS index from the semantic_cache SQLite table.
+
+    This replaces the old pickle approach. Benefits:
+    - Survives server crashes (SQLite is ACID, pickle is not)
+    - Can be inspected / backed up with standard DB tooling
+    - TTL eviction happens here — stale rows are deleted before the index is built
+    """
+    global _faiss_index, _faiss_payloads
+
+    dim = 384  # all-MiniLM-L6-v2 output dimension
+    _faiss_index = faiss.IndexFlatIP(dim)
+    _faiss_payloads = []
+
+    db = get_db()
+
+    # Evict expired entries before rebuilding
+    if SEMANTIC_TTL_SECONDS > 0:
+        cutoff = time.time() - SEMANTIC_TTL_SECONDS
+        deleted = db.execute(
+            "DELETE FROM semantic_cache WHERE created_at < ?", (cutoff,)
+        ).rowcount
+        if deleted:
+            print(f"[semantic_cache] Evicted {deleted} expired entries (TTL={SEMANTIC_TTL_SECONDS}s)")
+
+    # Enforce max size via LRU — keep the most recently used entries
+    total = db.execute("SELECT COUNT(*) FROM semantic_cache").fetchone()[0]
+    if total > SEMANTIC_MAX_ENTRIES:
+        to_delete = total - SEMANTIC_MAX_ENTRIES
+        db.execute("""
+            DELETE FROM semantic_cache
+            WHERE id IN (
+                SELECT id FROM semantic_cache
+                ORDER BY last_used_at ASC
+                LIMIT ?
+            )
+        """, (to_delete,))
+        print(f"[semantic_cache] LRU evicted {to_delete} entries (max={SEMANTIC_MAX_ENTRIES})")
+
+    db.commit()
+
+    rows = db.execute(
+        "SELECT id, query_text, response_json, created_at FROM semantic_cache ORDER BY id ASC"
+    ).fetchall()
+
+    if not rows:
+        print("[semantic_cache] Empty — nothing to load")
+        return
+
+    # Batch-embed all stored queries for efficiency
+    queries = [r["query_text"] for r in rows]
+    encoder = get_encoder()
+    vectors = encoder.encode(queries, normalize_embeddings=True, show_progress_bar=False)
+
+    for i, row in enumerate(rows):
+        vec = vectors[i].astype(np.float32).reshape(1, -1)
+        _faiss_index.add(vec)
+        _faiss_payloads.append({
+            "db_id": row["id"],
+            "response_json": row["response_json"],
+            "original_query": row["query_text"],
+            "created_at": row["created_at"],
+        })
+
+    print(f"[semantic_cache] Rebuilt FAISS index with {len(_faiss_payloads)} entries")
+
+
 def semantic_lookup(query: str) -> Optional[dict]:
+    """
+    Look up a query in the semantic cache.
+
+    Returns the payload dict (including response_json) on a hit, or None.
+    Also updates last_used_at and hit_count in SQLite on a hit (for LRU eviction).
+
+    Improvement over original:
+    - Checks TTL at lookup time as a second guard (index may be stale mid-run)
+    - Updates usage stats so LRU eviction is accurate
+    - Returns the top-k and picks the best scoring *non-expired* entry
+      instead of blindly returning the nearest vector (which may be stale)
+    """
     if _faiss_index is None or _faiss_index.ntotal == 0:
         return None
+
     vec = _embed(query).reshape(1, -1)
-    scores, indices = _faiss_index.search(vec, 1)
-    if scores[0][0] >= SEMANTIC_THRESHOLD:
-        return _faiss_payloads[indices[0][0]]
+
+    # Fetch top 5 candidates — lets us skip expired ones without a full scan
+    k = min(5, _faiss_index.ntotal)
+    scores, indices = _faiss_index.search(vec, k)
+
+    now = time.time()
+    db = get_db()
+
+    for rank in range(k):
+        score = scores[0][rank]
+        if score < SEMANTIC_THRESHOLD:
+            break  # Results are ordered by score; no point continuing
+
+        idx = indices[0][rank]
+        if idx < 0 or idx >= len(_faiss_payloads):
+            continue
+
+        payload = _faiss_payloads[idx]
+
+        # Runtime TTL check (handles entries added after last restart)
+        if SEMANTIC_TTL_SECONDS > 0:
+            age = now - payload.get("created_at", 0)
+            if age > SEMANTIC_TTL_SECONDS:
+                continue
+
+        # Update usage for LRU eviction
+        db_id = payload.get("db_id")
+        if db_id:
+            db.execute(
+                "UPDATE semantic_cache SET last_used_at = ?, hit_count = hit_count + 1 WHERE id = ?",
+                (now, db_id),
+            )
+            db.commit()
+
+        return payload
+
     return None
 
 
 def semantic_add(query: str, response_json: str):
-    if len(query) <= MIN_CHARS_FOR_SEMANTIC:
+    """
+    Add a new entry to both the SQLite semantic_cache table and the FAISS index.
+
+    Skips duplicates using a hash of the query text.
+    Enforces max size with LRU eviction before inserting.
+
+    Improvement over original:
+    - Persists to SQLite immediately (crash-safe)
+    - Deduplicates via query_hash
+    - Enforces SEMANTIC_MAX_ENTRIES cap at write time
+    """
+    if not query.strip():
         return
+
+    query_hash = hashlib.sha256(query.encode()).hexdigest()
+    now = time.time()
+    db = get_db()
+
+    # Skip if we already have this exact query cached
+    existing = db.execute(
+        "SELECT id FROM semantic_cache WHERE query_hash = ?", (query_hash,)
+    ).fetchone()
+    if existing:
+        return
+
+    # Enforce max size: evict LRU entry if at capacity
+    total = db.execute("SELECT COUNT(*) FROM semantic_cache").fetchone()[0]
+    if total >= SEMANTIC_MAX_ENTRIES:
+        lru_id = db.execute(
+            "SELECT id FROM semantic_cache ORDER BY last_used_at ASC LIMIT 1"
+        ).fetchone()
+        if lru_id:
+            db.execute("DELETE FROM semantic_cache WHERE id = ?", (lru_id["id"],))
+            # Also remove from in-memory index — rebuild is cheaper than
+            # trying to surgically remove a FAISS vector (FAISS doesn't support
+            # random deletion on IndexFlatIP; we'd need IndexIDMap for that).
+            # For simplicity we rebuild when an eviction happens. This is rare
+            # (only when the cache is full) so the overhead is acceptable.
+            _rebuild_faiss_from_db_sync(db)
+
+    # Insert into SQLite
+    cursor = db.execute(
+        """INSERT OR IGNORE INTO semantic_cache
+           (query_text, query_hash, response_json, created_at, last_used_at, hit_count)
+           VALUES (?, ?, ?, ?, ?, 0)""",
+        (query, query_hash, response_json, now, now),
+    )
+    db.commit()
+
+    if cursor.rowcount == 0:
+        return  # Race condition — another insert won
+
+    # Add vector to in-memory FAISS index
     vec = _embed(query).reshape(1, -1)
     _faiss_index.add(vec)
-    _faiss_payloads.append({"response_json": response_json, "original_query": query})
+
+    new_db_id = db.execute(
+        "SELECT id FROM semantic_cache WHERE query_hash = ?", (query_hash,)
+    ).fetchone()["id"]
+
+    _faiss_payloads.append({
+        "db_id": new_db_id,
+        "response_json": response_json,
+        "original_query": query,
+        "created_at": now,
+    })
+
+
+def _rebuild_faiss_from_db_sync(db: sqlite3.Connection):
+    """
+    Re-sync the in-memory FAISS index with what's currently in SQLite.
+    Called after an LRU eviction to keep index and DB in sync.
+    """
+    global _faiss_index, _faiss_payloads
+
+    dim = 384
+    _faiss_index = faiss.IndexFlatIP(dim)
+    _faiss_payloads = []
+
+    rows = db.execute(
+        "SELECT id, query_text, response_json, created_at FROM semantic_cache ORDER BY id ASC"
+    ).fetchall()
+
+    if not rows:
+        return
+
+    queries = [r["query_text"] for r in rows]
+    encoder = get_encoder()
+    vectors = encoder.encode(queries, normalize_embeddings=True, show_progress_bar=False)
+
+    for i, row in enumerate(rows):
+        vec = vectors[i].astype(np.float32).reshape(1, -1)
+        _faiss_index.add(vec)
+        _faiss_payloads.append({
+            "db_id": row["id"],
+            "response_json": row["response_json"],
+            "original_query": row["query_text"],
+            "created_at": row["created_at"],
+        })
 
 
 # ---------------------------------------------------------------------------
 # Exact cache
 # ---------------------------------------------------------------------------
 def exact_cache_key(model: str, messages: list[dict], temperature: float) -> str:
-    """Key on the last user message only.
-
-    Hashing the full message history meant the second 'hello' in a chat had a
-    different key from the first (because the prior assistant turn was now in
-    the list), so identical user prompts always missed. For a Q/A demo the
-    intent is "same prompt → same cached answer," so we key on the last user
-    turn plus model and temperature.
-    """
+    """Key on the last user message only (see original comments for rationale)."""
     last_user = ""
     for m in reversed(messages):
         if m.get("role") == "user":
@@ -219,17 +415,6 @@ def exact_store(key: str, response_json: str):
 # Cost
 # ---------------------------------------------------------------------------
 def compute_costs(tokens_in: int, tokens_out: int, cache_hit: bool):
-    """Returns (cost, counterfactual, saved, tokens_saved).
-
-    `counterfactual` is what the same call would cost on a baseline model
-    (GPT-4o pricing here) — useful as a "what if we always used the expensive
-    model" reference even on cache misses.
-
-    `saved` is *only* what the cache saved us. On a miss we still hit the
-    upstream model, so the cache saved us $0 and 0 tokens — the previous
-    behaviour of crediting `counterfactual - cost` on misses bundled in
-    routing savings and made the demo confusing.
-    """
     counterfactual = (tokens_in / 1e6) * GPT4O_PRICE["in"] + (tokens_out / 1e6) * GPT4O_PRICE["out"]
     cost = (tokens_in / 1e6) * GEMINI_PRICE["in"] + (tokens_out / 1e6) * GEMINI_PRICE["out"]
     if cache_hit:
@@ -294,7 +479,7 @@ def make_mock_response(model: str, tokens_in: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Seed data — demo-friendly Q/A pairs for pre-populating semantic cache
+# Seed data
 # ---------------------------------------------------------------------------
 SEED_QA_PAIRS = [
     ("What is the capital of France?",
@@ -321,8 +506,6 @@ SEED_QA_PAIRS = [
 
 
 def _seed_semantic_cache():
-    """Pre-populate both caches with canned Q/A pairs so early demo
-    requests hit the cache immediately."""
     seeded = 0
     for question, answer in SEED_QA_PAIRS:
         tokens_in = count_tokens(question) + 4
@@ -346,7 +529,6 @@ def _seed_semantic_cache():
             },
         }
         resp_json = json.dumps(resp)
-
         messages = [{"role": "user", "content": question}]
         exact_store(exact_cache_key(DEFAULT_MODEL, messages, 1.0), resp_json)
         semantic_add(question, resp_json)
@@ -360,14 +542,16 @@ def _seed_semantic_cache():
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _load_semantic_cache()
-    # Pre-warm tokenizer and encoder in background
+    # DB must be initialised before we rebuild the FAISS index from it
+    get_db()
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, get_tokenizer)
+    # Rebuild FAISS index from SQLite (replaces pickle load)
+    await loop.run_in_executor(None, _build_faiss_index_from_db)
     if os.getenv("SEED_CACHE", "false").lower() == "true":
         await loop.run_in_executor(None, _seed_semantic_cache)
     yield
-    _save_semantic_cache()
+    # No need to save pickle on shutdown — SQLite is already up-to-date
     if _db_conn:
         _db_conn.close()
 
@@ -383,7 +567,6 @@ async def chat_completions(request: dict):
     model: str = request.get("model", DEFAULT_MODEL)
     temperature: float = float(request.get("temperature", 1.0))
 
-    # Last user message for semantic cache
     last_user_msg = ""
     for m in reversed(messages):
         if m.get("role") == "user":
@@ -394,7 +577,7 @@ async def chat_completions(request: dict):
     prompt_hash = hashlib.sha256(last_user_msg.encode()).hexdigest()[:16]
     prompt_preview = last_user_msg[:60]
 
-    # 1. Exact cache check
+    # 1. Exact cache
     exact_key = exact_cache_key(model, messages, temperature)
     cached = exact_lookup(exact_key)
     if cached:
@@ -404,8 +587,8 @@ async def chat_completions(request: dict):
         log_request(model, prompt_hash, prompt_preview, tokens_in, tokens_out, "exact", latency_ms)
         return JSONResponse(content=resp)
 
-    # 2. Semantic cache check
-    if len(last_user_msg) > MIN_CHARS_FOR_SEMANTIC:
+    # 2. Semantic cache
+    if last_user_msg.strip():
         sem_hit = semantic_lookup(last_user_msg)
         if sem_hit:
             latency_ms = int((time.time() - t0) * 1000)
@@ -414,7 +597,7 @@ async def chat_completions(request: dict):
             log_request(model, prompt_hash, prompt_preview, tokens_in, tokens_out, "semantic", latency_ms)
             return JSONResponse(content=resp)
 
-    # 3. Cache miss — call API or mock
+    # 3. Cache miss — upstream API or mock
     if MOCK_MODE:
         await asyncio.sleep(0.8)
         resp = make_mock_response(model, tokens_in)
@@ -447,6 +630,9 @@ async def chat_completions(request: dict):
     return JSONResponse(content=resp)
 
 
+# ---------------------------------------------------------------------------
+# Stats API — now includes semantic cache health info
+# ---------------------------------------------------------------------------
 @app.get("/api/stats")
 async def stats():
     db = get_db()
@@ -465,7 +651,6 @@ async def stats():
     hits = row["hits"]
     cache_hit_rate = (hits / total) if total > 0 else 0.0
 
-    # 1-minute buckets, last 60 minutes
     cutoff = (datetime.utcnow() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
     bucket_rows = db.execute("""
         SELECT
@@ -505,6 +690,25 @@ async def stats():
         for r in recent_rows
     ]
 
+    # Semantic cache health
+    sem_row = db.execute("""
+        SELECT COUNT(*) AS total,
+               AVG(hit_count) AS avg_hits,
+               MIN(created_at) AS oldest
+        FROM semantic_cache
+    """).fetchone()
+
+    semantic_cache_info = {
+        "total_entries": sem_row["total"] or 0,
+        "avg_hit_count": round(sem_row["avg_hits"] or 0, 2),
+        "oldest_entry_age_hours": round(
+            (time.time() - (sem_row["oldest"] or time.time())) / 3600, 1
+        ),
+        "max_entries": SEMANTIC_MAX_ENTRIES,
+        "ttl_hours": SEMANTIC_TTL_SECONDS / 3600 if SEMANTIC_TTL_SECONDS > 0 else None,
+        "threshold": SEMANTIC_THRESHOLD,
+    }
+
     return {
         "total_spent_usd": round(row["total_spent_usd"], 6),
         "total_saved_usd": round(row["total_saved_usd"], 6),
@@ -513,7 +717,46 @@ async def stats():
         "total_requests": total,
         "timeline": timeline,
         "recent_requests": recent_requests,
+        "semantic_cache": semantic_cache_info,
     }
+
+
+@app.get("/api/semantic-cache")
+async def semantic_cache_entries():
+    """Inspect the semantic cache — useful for debugging threshold tuning."""
+    db = get_db()
+    rows = db.execute("""
+        SELECT id, query_text, created_at, last_used_at, hit_count
+        FROM semantic_cache
+        ORDER BY last_used_at DESC
+        LIMIT 100
+    """).fetchall()
+    now = time.time()
+    return {
+        "entries": [
+            {
+                "id": r["id"],
+                "query": r["query_text"],
+                "age_hours": round((now - r["created_at"]) / 3600, 1),
+                "last_used_hours_ago": round((now - r["last_used_at"]) / 3600, 1),
+                "hit_count": r["hit_count"],
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.delete("/api/semantic-cache")
+async def clear_semantic_cache():
+    """Wipe the entire semantic cache (useful when changing models or threshold)."""
+    global _faiss_index, _faiss_payloads
+    db = get_db()
+    deleted = db.execute("DELETE FROM semantic_cache").rowcount
+    db.commit()
+    dim = 384
+    _faiss_index = faiss.IndexFlatIP(dim)
+    _faiss_payloads = []
+    return {"deleted": deleted}
 
 
 @app.get("/dashboard")
